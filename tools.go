@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -167,6 +168,7 @@ func (t *Tools) UploadFiles(r *http.Request, dirName string, rename ...bool) ([]
 			}
 		}
 	}
+	log.Println("upload sucessful")
 	return uploadedFiles, nil
 
 }
