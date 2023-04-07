@@ -28,6 +28,8 @@ var uploadTests = []struct {
 	errorExpected bool
 }{
 	{name: "allowed no rename", allowedTypes: []string{"image/jpeg", "image/png"}, renameFile: false, errorExpected: false},
+	{name: "allowed rename", allowedTypes: []string{"image/jpeg", "image/png"}, renameFile: true, errorExpected: false},
+	{name: "not allowed image type", allowedTypes: []string{"image/jpeg"}, renameFile: false, errorExpected: true},
 }
 
 func TestTools_UploadFiles(t *testing.T) {
@@ -116,5 +118,86 @@ func TestTools_UploadFiles(t *testing.T) {
 			_ = os.Remove(fmt.Sprintf("./testdata/uploads/%s", uploadedFiles[0].NewFileName))
 		}
 
+		// Expecting error but no error found
+		if !e.errorExpected && err != nil {
+			t.Errorf("%s: error expected but not received", e.name)
+		}
+
+		wg.Wait()
 	}
+}
+
+func TestTools_UploadOneFile(t *testing.T) {
+	// setup a pipe to avoid buffering
+	pr, pw := io.Pipe()
+	// create a actual Multipart writer
+	// this gives me something to simulate a multipart file upload
+	writer := multipart.NewWriter(pw)
+
+	// we don't need a waitGroup here because we're running this once
+
+	go func() {
+		// go func(), simple inline function that's being sent off
+		// to run concurrenly with the current program
+		defer writer.Close()
+
+		// create the form data field "file"
+		//
+		// now, I need to get some data into that.
+		// I have to have some kind of image to try uploading and it
+		// has to be a jpeg or png because in my test, those are
+		// the only types I'm allowing
+		// Create the form data field and it needs to be populated
+		// with some data.
+		// so this create a part for the multipart file upload
+		part, err := writer.CreateFormFile("file", "./testdata/img.png")
+		if err != nil {
+			t.Error(err)
+		}
+
+		f, err := os.Open("./testdata/img.png")
+		if err != nil {
+			t.Error(err)
+		}
+
+		// I don't want a resource lead so defer
+		defer f.Close()
+
+		// decode the image
+		img, _, err := image.Decode(f)
+		if err != nil {
+			t.Error("error decoding image ", err)
+		}
+
+		err = png.Encode(part, img)
+		if err != nil {
+			t.Error(err)
+		}
+	}() /// This run in the background and when it finished
+	// I've to simulate creating a multipart request with the <img.png>
+	// file in it
+
+	// read from the pipe which receives data
+	request := httptest.NewRequest("POST", "/", pr)
+	// so this creates a request that will use the reader we want
+	// and we'll add to that request a header
+	// writer.FormDataContentType() sets the correct content type
+	// for whatever the payload is.
+	request.Header.Add("Content-Type", writer.FormDataContentType())
+
+	var testTools Tools
+
+	uploadedFile, err := testTools.UploadOneFile(request, "./testdata/uploads/", true)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if _, err := os.Stat(fmt.Sprintf("./testdata/uploads/%s", uploadedFile.NewFileName)); os.IsNotExist(err) {
+		// This means the file didn't got uploaded
+		t.Errorf(" expected file to exist: %s", err.Error())
+	}
+
+	// Clean the file from the ./testdata/uploads/
+	_ = os.Remove(fmt.Sprintf("./testdata/uploads/%s", uploadedFile.NewFileName))
+
 }
