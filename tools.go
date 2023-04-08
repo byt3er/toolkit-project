@@ -172,3 +172,16 @@ func (t *Tools) UploadFiles(r *http.Request, dirName string, rename ...bool) ([]
 	return uploadedFiles, nil
 
 }
+
+func (t *Tools) CreateDirIfNotExists(path string) error {
+	// when you create a directory, you have some kind
+	// of mode.
+	const mode = 0755
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		err := os.MkdirAll(path, mode)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
