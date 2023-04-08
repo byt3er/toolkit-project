@@ -64,8 +64,18 @@ func (t *Tools) UploadFiles(r *http.Request, dirName string, rename ...bool) ([]
 
 	var uploadedFiles []*UploadFile
 
+	if t.MaxFileSize == 0 {
+		t.MaxFileSize = 1024 * 1024 * 1024
+	}
+
+	// check if the directory exists
+	err := t.CreateDirIfNotExists(dirName)
+	if err != nil {
+		return nil, err
+	}
+
 	// check and validate the uploaded file size
-	if err := r.ParseMultipartForm(int64(t.MaxFileSize)); err != nil {
+	if err = r.ParseMultipartForm(int64(t.MaxFileSize)); err != nil {
 		return nil, err
 	}
 	//
@@ -173,6 +183,9 @@ func (t *Tools) UploadFiles(r *http.Request, dirName string, rename ...bool) ([]
 
 }
 
+// CreateDirIfNotExists creates a directory, and all necessary parents,
+//
+//	if it does not exist
 func (t *Tools) CreateDirIfNotExists(path string) error {
 	// when you create a directory, you have some kind
 	// of mode.
