@@ -5,7 +5,9 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"io/ioutil"
 	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"sync"
@@ -246,5 +248,35 @@ func TestTools_Slugify(t *testing.T) {
 			t.Errorf("%s: wrong slug returned; expected %s but got %s", e.name, e.expected, slug)
 		}
 
+	}
+}
+func TestTools_DownloadStaticFile(t *testing.T) {
+	// http.NewRecorder(response recorder) === http.ResponseWriter
+	rr := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+
+	var testTools Tools
+
+	testTools.DownloadStaticFile(rr, req, "./testdata", "img.png", "screenshort.png")
+
+	//result
+	res := rr.Result()
+	defer res.Body.Close() // avlid resource leak
+
+	// test that the entire file is downloaded.
+	// That can be check using the content-length
+	// inside the header.
+	if res.Header["Content-Length"][0] != "157004" {
+		t.Error("wrong content lenght of ", res.Header["Content-Length"])
+	}
+
+	if res.Header["Content-Disposition"][0] != "attachment; filename=\"screenshort.png\"" {
+		t.Error("wrong content disposition")
+	}
+
+	// check for an error when try to read the response body.
+	_, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		t.Error(err)
 	}
 }
