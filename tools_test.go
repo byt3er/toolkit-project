@@ -1,6 +1,9 @@
 package toolkit
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -266,7 +269,7 @@ func TestTools_DownloadStaticFile(t *testing.T) {
 	// test that the entire file is downloaded.
 	// That can be check using the content-length
 	// inside the header.
-	if res.Header["Content-Length"][0] != "157004" {
+	if res.Header["Content-Length"][0] != "63547" {
 		t.Error("wrong content lenght of ", res.Header["Content-Length"])
 	}
 
@@ -278,5 +281,116 @@ func TestTools_DownloadStaticFile(t *testing.T) {
 	_, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		t.Error(err)
+	}
+}
+
+var jsonTests = []struct {
+	name          string
+	json          string // JSON we want to send to this to read
+	errorExpected bool
+	maxSize       int // test for, posting too much data
+	allowUnknown  bool
+}{
+	{name: "good json", json: `{"foo": "bar"}`, errorExpected: false, maxSize: 1024, allowUnknown: false},
+	{name: "badly formatted json", json: `{"foo": }`, errorExpected: true, maxSize: 1024, allowUnknown: false},
+	{name: "incorrect type", json: `{"foo": 1}`, errorExpected: true, maxSize: 1024, allowUnknown: false},
+	{name: "two json files", json: `{"foo": "1"}{"alpha": "beta"}`, errorExpected: true, maxSize: 1024, allowUnknown: false},
+	{name: "empty body", json: ``, errorExpected: true, maxSize: 1024, allowUnknown: false},
+	{name: "syntax error in json", json: `{"foo":1"`, errorExpected: true, maxSize: 1024, allowUnknown: false},
+	{name: "unknown field in json", json: `{"foo0": "1"}`, errorExpected: true, maxSize: 1024, allowUnknown: false},
+	{name: "allow unknown fields in json", json: `{"fooo":"1"}`, errorExpected: false, maxSize: 1024, allowUnknown: true},
+	{name: "missing field name in json", json: `{jackma: "1"}`, errorExpected: true, maxSize: 1024, allowUnknown: true},
+	{name: "file too large", json: `{"foo": "bar"}`, errorExpected: true, maxSize: 5, allowUnknown: true},
+	{name: "not json", json: `Hello, world`, errorExpected: true, maxSize: 1024, allowUnknown: true},
+}
+
+func TestTools_ReadJSON(t *testing.T) {
+	var testTool Tools
+	for _, e := range jsonTests {
+		//set the max file size
+		testTool.MaxJSONSize = e.maxSize
+
+		// allow or disallow unknown fields
+		testTool.AllowUnknownFields = e.allowUnknown
+
+		// declare a variable to read the decoded json into
+		var decodeJSON struct {
+			Foo string `json:"foo"`
+		}
+
+		// create a request with the body
+		req, err := http.NewRequest("POST", "/", bytes.NewReader([]byte(e.json)))
+		if err != nil {
+			t.Log("error: ", err)
+		}
+
+		// create a response recoder
+		rr := httptest.NewRecorder()
+
+		err = testTool.ReadJson(rr, req, &decodeJSON)
+
+		// Now we do our actual tests
+
+		// if we expect and error but don't get one
+		if e.errorExpected && err == nil {
+			t.Errorf("%s: error expected, but non received", e.name)
+		}
+
+		//if don't expect and error but got one
+		if !e.errorExpected && err != nil {
+			t.Errorf("%s: err not expected but one received: %s", e.name, err.Error())
+		}
+		// to avoid resource leak close the request body
+		req.Body.Close()
+
+	}
+}
+
+func TestTools_WriteJSON(t *testing.T) {
+	var testTools Tools
+
+	rr := httptest.NewRecorder()
+	payload := JSONResponse{
+		Error:   false,
+		Message: "foo",
+	}
+
+	headers := make(http.Header)
+	headers.Add("FOO", "BAR")
+
+	err := testTools.WriteJson(rr, http.StatusOK, payload, headers)
+	if err != nil {
+		t.Errorf("failed to write JSON: %v", err)
+	}
+}
+
+func TestTools_ErrorJSON(t *testing.T) {
+	var testTools Tools
+
+	rr := httptest.NewRecorder()
+	err := testTools.ErrorJSON(rr, errors.New("some error"), http.StatusServiceUnavailable)
+	if err != nil {
+		t.Error(err)
+	}
+
+	//
+	var payload JSONResponse
+	decoder := json.NewDecoder(rr.Body)
+	err = decoder.Decode(&payload)
+	if err != nil {
+		t.Error("received error when decoding JSON", err)
+	}
+
+	//check the field <error> in the JSON we go back is set to true
+	if !payload.Error {
+		// it should
+		t.Error("error set to false in JSON, and it should be true")
+	}
+
+	// check the StatusCode
+	//Code is the HTTP response code set by WriteHeader.
+	if rr.Code != http.StatusServiceUnavailable {
+		// then we have the wrong status set up
+		t.Errorf("wrong status code returned; expected 503, but got %d", rr.Code)
 	}
 }
